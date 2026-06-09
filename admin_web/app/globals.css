@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f8f7;
+  --foreground: #142a38;
+  --primary: #1e9d92;
+  --primary-dark: #147b74;
+  --muted: #687882;
+  --border: #dce8e5;
+  --card: #ffffff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 92% -8%, rgba(58, 190, 175, 0.1), transparent 30rem),
+    radial-gradient(circle at 46% 110%, rgba(117, 203, 193, 0.06), transparent 28rem),
+    var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(36, 153, 143, 0.2);
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #bed2cf;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.surface-shadow {
+  box-shadow:
+    0 1px 2px rgba(23, 74, 69, 0.025),
+    0 12px 34px rgba(28, 94, 88, 0.055);
+}
+
+.focus-ring:focus-visible {
+  outline: 3px solid rgba(30, 157, 146, 0.2);
+  outline-offset: 2px;
+}
+
+.premium-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.soft-noise {
+  background-image: radial-gradient(rgba(24, 91, 85, 0.08) 0.7px, transparent 0.7px);
+  background-size: 8px 8px;
+}
