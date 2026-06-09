@@ -16,6 +16,31 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _handledRouteMessage = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_handledRouteMessage) return;
+    _handledRouteMessage = true;
+
+    final arguments = ModalRoute.of(context)?.settings.arguments;
+    final message = arguments is Map ? arguments['message'] as String? : null;
+    if (message == null || message.trim().isEmpty) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: AppColors.primary,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+    });
+  }
 
   Future<void> _handleLogin(BuildContext context) async {
     final email = _emailController.text.trim();

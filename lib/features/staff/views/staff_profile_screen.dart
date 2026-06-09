@@ -15,8 +15,9 @@ class StaffProfileScreen extends StatefulWidget {
 class _StaffProfileScreenState extends State<StaffProfileScreen> {
   static const _repository = StaffTaskRepository();
 
-  StaffOperationalProfile? _profile;
+  StaffProfileOverview? _overview;
   bool _isLoadingProfile = true;
+  String? _profileError;
 
   @override
   void initState() {
@@ -25,17 +26,34 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
   }
 
   Future<void> _loadProfile() async {
+    setState(() {
+      _isLoadingProfile = true;
+      _profileError = null;
+    });
+
     try {
-      final profile = await _repository.getStaffOperationalProfile();
+      final overview = await _repository.getStaffProfileOverview();
       if (!mounted) return;
-      setState(() => _profile = profile);
-    } catch (error) {
+      setState(() => _overview = overview);
+    } catch (error, stackTrace) {
       debugPrint('STAFF PROFILE SCREEN LOAD ERROR: $error');
+      debugPrint('STAFF PROFILE SCREEN LOAD STACKTRACE: $stackTrace');
+      if (!mounted) return;
+      setState(() {
+        _profileError = 'Profil petugas belum dapat dimuat. Silakan coba lagi.';
+      });
     } finally {
       if (mounted) setState(() => _isLoadingProfile = false);
     }
   }
 
+  Future<void> _openEditProfile() async {
+    await Navigator.pushNamed(context, AppRoutes.staffEditProfile);
+    if (mounted) await _loadProfile();
+  }
+
+  StaffOperationalProfile? get _profile => _overview?.profile;
+  StaffProfileStats get _stats => _overview?.stats ?? StaffProfileStats.empty;
   String get _name => _profile?.fullName ?? 'Petugas Bersihuy';
   String get _email => _profile?.email ?? '-';
   String get _initials => _profile?.initials ?? 'P';
@@ -144,22 +162,7 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
                     ).copyWith(scrollbars: false),
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.fromLTRB(22, 20, 22, 128),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildProfileHeaderCard(context),
-                          const SizedBox(height: 18),
-                          _buildStatGrid(),
-                          const SizedBox(height: 18),
-                          _buildScheduleCard(),
-                          const SizedBox(height: 18),
-                          _buildMenuSection(context),
-                          const SizedBox(height: 18),
-                          _buildSupportSection(context),
-                          const SizedBox(height: 18),
-                          _buildLogoutButton(context),
-                        ],
-                      ),
+                      child: _buildProfileContent(context),
                     ),
                   ),
                   const Positioned(
@@ -174,6 +177,61 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildProfileContent(BuildContext context) {
+    if (_isLoadingProfile) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 140),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_profileError != null) {
+      return Container(
+        padding: const EdgeInsets.all(22),
+        decoration: _cardDecoration(radius: 22),
+        child: Column(
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              color: AppColors.error,
+              size: 36,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              _profileError!,
+              textAlign: TextAlign.center,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppColors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton(
+              onPressed: _loadProfile,
+              child: const Text('Coba Lagi'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildProfileHeaderCard(context),
+        const SizedBox(height: 18),
+        _buildStatGrid(),
+        const SizedBox(height: 18),
+        _buildScheduleCard(),
+        const SizedBox(height: 18),
+        _buildMenuSection(context),
+        const SizedBox(height: 18),
+        _buildSupportSection(context),
+        const SizedBox(height: 18),
+        _buildLogoutButton(context),
+      ],
     );
   }
 
@@ -243,8 +301,7 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
                 ),
               ),
               IconButton(
-                onPressed: () =>
-                    Navigator.pushNamed(context, AppRoutes.staffEditProfile),
+                onPressed: _openEditProfile,
                 icon: const Icon(Icons.edit_outlined, size: 18),
                 color: AppColors.primary,
                 style: IconButton.styleFrom(
@@ -263,9 +320,12 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _headerStatItem('24', 'Tugas Selesai'),
-              _headerStatItem('4.9', 'Rating'),
-              _headerStatItem('12', 'Bulan Ini'),
+              _headerStatItem('${_stats.completedTasks}', 'Tugas Selesai'),
+              _headerStatItem(
+                _stats.averageRating?.toStringAsFixed(1) ?? '-',
+                'Rating',
+              ),
+              _headerStatItem('${_stats.tasksThisMonth}', 'Bulan Ini'),
             ],
           ),
         ],
@@ -322,7 +382,7 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
       (
         icon: Icons.check_circle_rounded,
         label: 'Tugas Selesai',
-        value: '24',
+        value: '${_stats.completedTasks}',
         color: const Color(0xFF2F7D54),
         bg: const Color(0xFFEAF8EF),
         borderColor: const Color(0xFF8FD7AA).withValues(alpha: 0.36),
@@ -330,7 +390,7 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
       (
         icon: Icons.star_rounded,
         label: 'Rating',
-        value: '4.9',
+        value: _stats.averageRating?.toStringAsFixed(1) ?? 'Belum ada',
         color: const Color(0xFFF59E0B),
         bg: const Color(0xFFFFF8DF),
         borderColor: const Color(0xFFF2C15E).withValues(alpha: 0.36),
@@ -338,7 +398,7 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
       (
         icon: Icons.report_rounded,
         label: 'Komplain',
-        value: '0',
+        value: '${_stats.complaintCount}',
         color: AppColors.error,
         bg: const Color(0xFFFFE8E8),
         borderColor: const Color(0xFFE89090).withValues(alpha: 0.36),
@@ -346,7 +406,7 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
       (
         icon: Icons.calendar_month_rounded,
         label: 'Bulan Ini',
-        value: '12',
+        value: '${_stats.tasksThisMonth}',
         color: const Color(0xFF2B6577),
         bg: const Color(0xFFE8F2FB),
         borderColor: const Color(0xFFB3D4EE).withValues(alpha: 0.36),
@@ -576,7 +636,9 @@ class _StaffProfileScreenState extends State<StaffProfileScreen> {
           return Column(
             children: [
               InkWell(
-                onTap: () => Navigator.pushNamed(context, route),
+                onTap: route == AppRoutes.staffEditProfile
+                    ? _openEditProfile
+                    : () => Navigator.pushNamed(context, route),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,

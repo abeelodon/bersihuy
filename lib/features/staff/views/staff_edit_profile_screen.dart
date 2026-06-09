@@ -1,76 +1,232 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../shared/widgets/staff_premium_widgets.dart';
+import '../repositories/staff_task_repository.dart';
 
-class StaffEditProfileScreen extends StatelessWidget {
+class StaffEditProfileScreen extends StatefulWidget {
   const StaffEditProfileScreen({super.key});
+
+  @override
+  State<StaffEditProfileScreen> createState() => _StaffEditProfileScreenState();
+}
+
+class _StaffEditProfileScreenState extends State<StaffEditProfileScreen> {
+  static const _repository = StaffTaskRepository();
+
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _serviceAreaController = TextEditingController();
+  final _baseLocationController = TextEditingController();
+  final _workScheduleController = TextEditingController();
+
+  StaffOperationalProfile? _profile;
+  bool _isLoading = true;
+  bool _isSaving = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final profile = await _repository.getStaffOperationalProfile();
+      if (profile == null) {
+        throw StateError('Sesi petugas tidak ditemukan.');
+      }
+      if (!mounted) return;
+
+      _nameController.text = profile.fullName;
+      _emailController.text = profile.email;
+      _phoneController.text = profile.phone ?? '';
+      _serviceAreaController.text = profile.serviceArea ?? '';
+      _baseLocationController.text = profile.baseLocation ?? '';
+      _workScheduleController.text = profile.workSchedule ?? '';
+      setState(() => _profile = profile);
+    } catch (error, stackTrace) {
+      debugPrint('STAFF EDIT PROFILE LOAD ERROR: $error');
+      debugPrint('STAFF EDIT PROFILE LOAD STACKTRACE: $stackTrace');
+      if (!mounted) return;
+      setState(() {
+        _errorMessage =
+            'Data profil petugas belum dapat dimuat. Silakan coba lagi.';
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    if (_isSaving || !_formKey.currentState!.validate()) return;
+
+    setState(() => _isSaving = true);
+    try {
+      await _repository.updateStaffOperationalProfile(
+        fullName: _nameController.text,
+        phone: _phoneController.text,
+        serviceArea: _serviceAreaController.text,
+        baseLocation: _baseLocationController.text,
+        workSchedule: _workScheduleController.text,
+      );
+
+      if (!mounted) return;
+      await _loadProfile();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Profil petugas berhasil diperbarui.'),
+            backgroundColor: AppColors.primary,
+          ),
+        );
+    } catch (error, stackTrace) {
+      debugPrint('STAFF EDIT PROFILE SAVE ERROR: $error');
+      debugPrint('STAFF EDIT PROFILE SAVE STACKTRACE: $stackTrace');
+      if (!mounted) return;
+      final message = error.toString().replaceFirst('Exception: ', '');
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              message.isEmpty ? 'Profil petugas gagal diperbarui.' : message,
+            ),
+            backgroundColor: AppColors.error,
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _serviceAreaController.dispose();
+    _baseLocationController.dispose();
+    _workScheduleController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: Colors.white.withValues(alpha: 0.95),
-        elevation: 0,
-        scrolledUnderElevation: 1,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.onSurfaceVariant),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Data Pribadi',
-          style: AppTextStyles.headlineSmall.copyWith(
-            fontWeight: FontWeight.w700,
-            color: AppColors.primary,
-          ),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1.0),
-          child: Container(
-            color: AppColors.outlineVariant,
-            height: 1.0,
-          ),
-        ),
-      ),
+      appBar: _buildAppBar(),
       body: PremiumStaffBackground(
         child: SafeArea(
           child: Center(
             child: Container(
               width: double.infinity,
               constraints: const BoxConstraints(maxWidth: 460),
-              child: Stack(
+              child: _buildBody(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      backgroundColor: Colors.white.withValues(alpha: 0.95),
+      elevation: 0,
+      scrolledUnderElevation: 1,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back, color: AppColors.onSurfaceVariant),
+        onPressed: () => Navigator.pop(context),
+      ),
+      title: Text(
+        'Data Pribadi',
+        style: AppTextStyles.headlineSmall.copyWith(
+          fontWeight: FontWeight.w700,
+          color: AppColors.primary,
+        ),
+      ),
+      bottom: const PreferredSize(
+        preferredSize: Size.fromHeight(1),
+        child: Divider(height: 1, color: AppColors.outlineVariant),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Container(
+            padding: const EdgeInsets.all(22),
+            decoration: staffPremiumCardDecoration(radius: 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  color: AppColors.error,
+                  size: 36,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                OutlinedButton(
+                  onPressed: _loadProfile,
+                  child: const Text('Coba Lagi'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(22, 20, 22, 120),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ScrollConfiguration(
-                    behavior: ScrollConfiguration.of(
-                      context,
-                    ).copyWith(scrollbars: false),
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(22, 20, 22, 120),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildPhotoSection(),
-                          const SizedBox(height: 20),
-                          _buildInfoSection(),
-                          const SizedBox(height: 20),
-                          _buildWorkIdentitySection(),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: _buildSaveButton(context),
-                  ),
+                  _buildPhotoSection(),
+                  const SizedBox(height: 20),
+                  _buildPersonalSection(),
+                  const SizedBox(height: 20),
+                  _buildOperationalSection(),
                 ],
               ),
             ),
           ),
         ),
-      ),
+        Positioned(bottom: 0, left: 0, right: 0, child: _buildSaveButton()),
+      ],
     );
   }
 
@@ -80,32 +236,31 @@ class StaffEditProfileScreen extends StatelessWidget {
       decoration: staffPremiumCardDecoration(radius: 22),
       child: Column(
         children: [
-          Stack(
-            children: [
-              Container(
-                width: 96,
-                height: 96,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2), width: 2),
-                ),
-                child: Center(
-                  child: Text(
-                    'BS',
-                    style: AppTextStyles.headlineLarge.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 32,
-                    ),
-                  ),
+          Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.primary.withValues(alpha: 0.1),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.2),
+                width: 2,
+              ),
+            ),
+            child: Center(
+              child: Text(
+                _profile?.initials ?? 'P',
+                style: AppTextStyles.headlineLarge.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 32,
                 ),
               ),
-            ],
+            ),
           ),
           const SizedBox(height: 12),
           Text(
-            'Budi Santoso',
+            _profile?.fullName ?? 'Petugas Bersihuy',
             style: AppTextStyles.headlineSmall.copyWith(
               fontWeight: FontWeight.w600,
               color: AppColors.onSurface,
@@ -129,23 +284,71 @@ class StaffEditProfileScreen extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () {},
-            child: Text(
-              'Ubah Foto',
-              style: AppTextStyles.labelMedium.copyWith(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoSection() {
+  Widget _buildPersonalSection() {
+    return _buildSection(
+      title: 'INFORMASI PRIBADI',
+      children: [
+        _buildTextField(
+          label: 'Nama Lengkap',
+          controller: _nameController,
+          validator: (value) => value == null || value.trim().isEmpty
+              ? 'Nama lengkap wajib diisi'
+              : null,
+        ),
+        const SizedBox(height: 14),
+        _buildTextField(
+          label: 'Email',
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+          readOnly: true,
+        ),
+        const SizedBox(height: 14),
+        _buildTextField(
+          label: 'Nomor WhatsApp',
+          controller: _phoneController,
+          keyboardType: TextInputType.phone,
+          hintText: 'Telepon belum diatur',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOperationalSection() {
+    return _buildSection(
+      title: 'INFORMASI OPERASIONAL',
+      children: [
+        _buildTextField(
+          label: 'Area Layanan',
+          controller: _serviceAreaController,
+          hintText: 'Area belum diatur',
+        ),
+        const SizedBox(height: 14),
+        _buildTextField(
+          label: 'Lokasi Base',
+          controller: _baseLocationController,
+          hintText: 'Base belum diatur',
+          maxLines: 2,
+        ),
+        const SizedBox(height: 14),
+        _buildTextField(
+          label: 'Jadwal Kerja',
+          controller: _workScheduleController,
+          hintText: 'Jadwal belum diatur',
+          maxLines: 2,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSection({
+    required String title,
+    required List<Widget> children,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: staffPremiumCardDecoration(radius: 22),
@@ -153,7 +356,7 @@ class StaffEditProfileScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'INFORMASI PRIBADI',
+            title,
             style: AppTextStyles.labelSmall.copyWith(
               color: AppColors.onSurfaceVariant,
               fontWeight: FontWeight.w500,
@@ -161,33 +364,7 @@ class StaffEditProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          _buildTextField(label: 'Nama Lengkap', value: 'Budi Santoso'),
-          const SizedBox(height: 14),
-          _buildTextField(
-            label: 'Email',
-            value: 'budi@bersihuy.com',
-            keyboardType: TextInputType.emailAddress,
-          ),
-          const SizedBox(height: 14),
-          _buildTextField(
-            label: 'Nomor WhatsApp',
-            value: '081234567890',
-            keyboardType: TextInputType.phone,
-          ),
-          const SizedBox(height: 14),
-          _buildTextField(
-            label: 'Alamat Domisili',
-            value: 'Jln. Melati No. 12',
-            maxLines: 2,
-          ),
-          const SizedBox(height: 14),
-          _buildReadonlyField(
-            label: 'Nomor KTP',
-            value: '3271234567890001',
-            hint: 'Nomor KTP tidak dapat diubah. Hubungi admin.',
-          ),
-          const SizedBox(height: 14),
-          _buildGenderDropdown(),
+          ...children,
         ],
       ),
     );
@@ -195,9 +372,12 @@ class StaffEditProfileScreen extends StatelessWidget {
 
   Widget _buildTextField({
     required String label,
-    required String value,
+    required TextEditingController controller,
+    String? hintText,
     TextInputType keyboardType = TextInputType.text,
     int maxLines = 1,
+    bool readOnly = false,
+    String? Function(String?)? validator,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,19 +391,25 @@ class StaffEditProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         TextFormField(
-          initialValue: value,
+          controller: controller,
           keyboardType: keyboardType,
           maxLines: maxLines,
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.onSurface,
-          ),
+          readOnly: readOnly,
+          validator: validator,
+          style: AppTextStyles.bodyMedium.copyWith(color: AppColors.onSurface),
           decoration: InputDecoration(
+            hintText: hintText,
+            hintStyle: AppTextStyles.bodyMedium.copyWith(
+              color: AppColors.outline,
+            ),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
               vertical: 12,
             ),
             filled: true,
-            fillColor: const Color(0xFFF4FAF9),
+            fillColor: readOnly
+                ? AppColors.outlineVariant.withValues(alpha: 0.2)
+                : const Color(0xFFF4FAF9),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: AppColors.outlineVariant),
@@ -244,275 +430,12 @@ class StaffEditProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildReadonlyField({
-    required String label,
-    required String value,
-    required String hint,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: AppTextStyles.labelSmall.copyWith(
-            color: AppColors.onSurfaceVariant,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextFormField(
-          initialValue: value,
-          readOnly: true,
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.onSurfaceVariant,
-          ),
-          decoration: InputDecoration(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
-            ),
-            filled: true,
-            fillColor: const Color(0xFFE6E8E9),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: AppColors.outlineVariant.withValues(alpha: 0.3),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: AppColors.outlineVariant.withValues(alpha: 0.3),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          hint,
-          style: AppTextStyles.labelSmall.copyWith(
-            color: AppColors.outline,
-            fontSize: 10,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildGenderDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Jenis Kelamin',
-          style: AppTextStyles.labelSmall.copyWith(
-            color: AppColors.onSurfaceVariant,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 6),
-        DropdownButtonFormField<String>(
-          initialValue: 'Laki-laki',
-          items: const [
-            DropdownMenuItem(value: 'Laki-laki', child: Text('Laki-laki')),
-            DropdownMenuItem(value: 'Perempuan', child: Text('Perempuan')),
-          ],
-          onChanged: (_) {},
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.onSurface,
-          ),
-          decoration: InputDecoration(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
-            ),
-            filled: true,
-            fillColor: const Color(0xFFF4FAF9),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppColors.outlineVariant),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: AppColors.outlineVariant.withValues(alpha: 0.5),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppColors.primary),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildWorkIdentitySection() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: staffPremiumCardDecoration(radius: 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'IDENTITAS PEKERJAAN',
-            style: AppTextStyles.labelSmall.copyWith(
-              color: AppColors.onSurfaceVariant,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 16),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.8,
-            children: [
-              _buildIdentityCard('ID Petugas', 'STF-0008'),
-              _buildStatusCard(),
-              _buildRatingCard(),
-              _buildIdentityCard('Tugas Selesai', '24'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIdentityCard(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.primarySoft.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: AppTextStyles.labelSmall.copyWith(
-              color: AppColors.onSurfaceVariant,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: AppTextStyles.headlineSmall.copyWith(
-              fontWeight: FontWeight.w600,
-              color: AppColors.onSurface,
-              fontSize: 16,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusCard() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.primarySoft.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Status',
-            style: AppTextStyles.labelSmall.copyWith(
-              color: AppColors.onSurfaceVariant,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF4CAF50),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Siap Bertugas',
-                style: AppTextStyles.bodyMedium.copyWith(
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.onSurface,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRatingCard() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.primarySoft.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Rating',
-            style: AppTextStyles.labelSmall.copyWith(
-              color: AppColors.onSurfaceVariant,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              const Icon(Icons.star, color: Color(0xFFFFB300), size: 16),
-              const SizedBox(width: 4),
-              Text(
-                '4.9',
-                style: AppTextStyles.headlineSmall.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.onSurface,
-                  fontSize: 16,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSaveButton(BuildContext context) {
+  Widget _buildSaveButton() {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(
-            color: AppColors.outlineVariant,
-          ),
-        ),
+        border: const Border(top: BorderSide(color: AppColors.outlineVariant)),
         boxShadow: [
           BoxShadow(
             color: AppColors.primary.withValues(alpha: 0.06),
@@ -521,26 +444,33 @@ class StaffEditProfileScreen extends StatelessWidget {
           ),
         ],
       ),
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton(
-          onPressed: () => Navigator.pop(context),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: const StadiumBorder(),
-            elevation: 0,
-          ),
-          child: Text(
-            'Simpan Perubahan',
-            style: AppTextStyles.labelMedium.copyWith(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-            ),
-          ),
+      child: ElevatedButton(
+        onPressed: _isSaving ? null : _saveProfile,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.6),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: const StadiumBorder(),
+          elevation: 0,
         ),
+        child: _isSaving
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2.4,
+                ),
+              )
+            : Text(
+                'Simpan Perubahan',
+                style: AppTextStyles.labelMedium.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
       ),
     );
   }

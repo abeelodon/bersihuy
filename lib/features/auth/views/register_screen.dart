@@ -1,10 +1,181 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/routes/app_routes.dart';
+import '../../../core/services/supabase_service.dart';
 
-class RegisterScreen extends StatelessWidget {
+class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
+
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  final _fullNameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+
+  bool _isLoading = false;
+
+  Future<void> _handleRegister() async {
+    final fullName = _fullNameController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final confirmPassword = _confirmPasswordController.text;
+    final validationMessage = _validateInput(
+      fullName: fullName,
+      email: email,
+      password: password,
+      confirmPassword: confirmPassword,
+    );
+
+    if (validationMessage != null) {
+      _showSnackBar(validationMessage, isError: true);
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    debugPrint('REGISTER: fullName=$fullName');
+    debugPrint('REGISTER: email=$email');
+
+    try {
+      final response = await SupabaseService.client.auth.signUp(
+        email: email,
+        password: password,
+        data: {'full_name': fullName},
+      );
+
+      final user = response.user;
+      if (user == null) {
+        throw const _RegisterException(
+          'Registrasi berhasil tetapi data pengguna tidak tersedia.',
+        );
+      }
+
+      // Supabase may return an obfuscated user for an existing email when
+      // email confirmation is enabled.
+      if (user.identities != null && user.identities!.isEmpty) {
+        throw const _EmailAlreadyRegisteredException();
+      }
+
+      debugPrint('REGISTER: userId=${user.id}');
+      debugPrint('REGISTER: profile creation delegated to database trigger');
+
+      if (!mounted) return;
+
+      if (response.session != null) {
+        debugPrint('REGISTER: signing out temporary registration session');
+        await SupabaseService.client.auth.signOut();
+      }
+
+      if (!mounted) return;
+
+      debugPrint('REGISTER: navigating to login after successful registration');
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.login,
+        (route) => false,
+        arguments: {'message': 'Akun berhasil dibuat. Silakan login kembali.'},
+      );
+    } catch (error, stackTrace) {
+      final message = _friendlyError(error);
+      debugPrint('REGISTER ERROR: $message');
+      debugPrint('REGISTER STACKTRACE: $stackTrace');
+
+      if (mounted) {
+        _showSnackBar(message, isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  String? _validateInput({
+    required String fullName,
+    required String email,
+    required String password,
+    required String confirmPassword,
+  }) {
+    if (fullName.isEmpty) {
+      return 'Nama lengkap wajib diisi.';
+    }
+    if (email.isEmpty) {
+      return 'Email wajib diisi.';
+    }
+
+    final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!emailPattern.hasMatch(email)) {
+      return 'Format email tidak valid.';
+    }
+    if (password.isEmpty) {
+      return 'Password wajib diisi.';
+    }
+    if (password.length < 6) {
+      return 'Password minimal 6 karakter.';
+    }
+    if (confirmPassword.isEmpty) {
+      return 'Konfirmasi password wajib diisi.';
+    }
+    if (confirmPassword != password) {
+      return 'Konfirmasi password tidak sama.';
+    }
+
+    return null;
+  }
+
+  String _friendlyError(Object error) {
+    if (error is _EmailAlreadyRegisteredException) {
+      return 'Email sudah terdaftar. Silakan masuk.';
+    }
+
+    final rawMessage = switch (error) {
+      AuthException authError => authError.message,
+      _RegisterException registerError => registerError.message,
+      _ => error.toString(),
+    };
+    final lowerMessage = rawMessage.toLowerCase();
+
+    if (lowerMessage.contains('already registered') ||
+        lowerMessage.contains('already exists') ||
+        lowerMessage.contains('user_already_exists') ||
+        lowerMessage.contains('email_exists') ||
+        lowerMessage.contains('duplicate')) {
+      return 'Email sudah terdaftar. Silakan masuk.';
+    }
+
+    final cleanMessage = rawMessage.startsWith('Exception: ')
+        ? rawMessage.substring(11)
+        : rawMessage;
+    return cleanMessage.isEmpty
+        ? 'Registrasi gagal. Silakan coba lagi.'
+        : cleanMessage;
+  }
+
+  void _showSnackBar(String message, {required bool isError}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? AppColors.error : AppColors.primary,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+  }
+
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -113,46 +284,49 @@ class RegisterScreen extends StatelessWidget {
                           const SizedBox(height: 24),
 
                           // Nama Lengkap Field
-                          const _PremiumTextField(
+                          _PremiumTextField(
                             label: 'Nama Lengkap',
                             hint: 'Masukkan nama lengkap Anda',
                             icon: Icons.person_outline_rounded,
+                            controller: _fullNameController,
                           ),
                           const SizedBox(height: 17),
 
                           // Email Field
-                          const _PremiumTextField(
+                          _PremiumTextField(
                             label: 'Email',
                             hint: 'Masukkan email Anda',
                             icon: Icons.mail_outline_rounded,
                             keyboardType: TextInputType.emailAddress,
+                            controller: _emailController,
                           ),
                           const SizedBox(height: 17),
 
                           // Password Field
-                          const _PremiumTextField(
+                          _PremiumTextField(
                             label: 'Password',
                             hint: 'Masukkan password Anda',
                             icon: Icons.lock_outline_rounded,
                             isPassword: true,
+                            controller: _passwordController,
                           ),
                           const SizedBox(height: 17),
 
                           // Konfirmasi Password Field
-                          const _PremiumTextField(
+                          _PremiumTextField(
                             label: 'Konfirmasi Password',
                             hint: 'Ulangi password Anda',
                             icon: Icons.lock_outline_rounded,
                             isPassword: true,
+                            controller: _confirmPasswordController,
                           ),
                           const SizedBox(height: 24),
 
                           // Register Button
                           _PrimaryAuthButton(
                             text: 'Daftar',
-                            onPressed: () {
-                              // Handle registration action
-                            },
+                            onPressed: _handleRegister,
+                            isLoading: _isLoading,
                           ),
                         ],
                       ),
@@ -277,12 +451,14 @@ class _PremiumTextField extends StatefulWidget {
   final String hint;
   final IconData icon;
   final bool isPassword;
+  final TextEditingController controller;
   final TextInputType keyboardType;
 
   const _PremiumTextField({
     this.label,
     required this.hint,
     required this.icon,
+    required this.controller,
     this.isPassword = false,
     this.keyboardType = TextInputType.text,
   });
@@ -342,6 +518,7 @@ class _PremiumTextFieldState extends State<_PremiumTextField> {
         ],
         TextFormField(
           focusNode: _focusNode,
+          controller: widget.controller,
           obscureText: _obscureText,
           keyboardType: widget.keyboardType,
           cursorColor: const Color(0xFF2F8F8A),
@@ -425,9 +602,14 @@ class _PremiumTextFieldState extends State<_PremiumTextField> {
 
 class _PrimaryAuthButton extends StatelessWidget {
   final String text;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+  final bool isLoading;
 
-  const _PrimaryAuthButton({required this.text, required this.onPressed});
+  const _PrimaryAuthButton({
+    required this.text,
+    required this.onPressed,
+    this.isLoading = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -453,25 +635,44 @@ class _PrimaryAuthButton extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onPressed,
+          onTap: isLoading ? null : onPressed,
           borderRadius: borderRadius,
           splashColor: Colors.white.withValues(alpha: 0.12),
           highlightColor: Colors.white.withValues(alpha: 0.08),
           child: Center(
-            child: Text(
-              text,
-              style: AppTextStyles.buttonLabel.copyWith(
-                color: Colors.white,
-                fontSize: 14.5,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0,
-              ),
-            ),
+            child: isLoading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : Text(
+                    text,
+                    style: AppTextStyles.buttonLabel.copyWith(
+                      color: Colors.white,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0,
+                    ),
+                  ),
           ),
         ),
       ),
     );
   }
+}
+
+class _RegisterException implements Exception {
+  final String message;
+
+  const _RegisterException(this.message);
+}
+
+class _EmailAlreadyRegisteredException implements Exception {
+  const _EmailAlreadyRegisteredException();
 }
 
 class _TextAction extends StatefulWidget {

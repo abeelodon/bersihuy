@@ -6,6 +6,7 @@ import '../../../core/routes/app_routes.dart';
 import '../../../core/services/bersihuy_data_service.dart';
 import '../../../shared/widgets/customer_bottom_nav.dart';
 import '../repositories/order_repository.dart';
+import '../services/customer_profile_service.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
@@ -15,8 +16,11 @@ class CustomerHomeScreen extends StatefulWidget {
 }
 
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
+  static const _profileService = CustomerProfileService();
+
   int _selectedCategoryIndex = 0;
   bool _showAllActiveOrders = false;
+  CustomerProfileData? _customerProfile;
 
   // ── Real active orders from Supabase ──────────────────────────────────────
   List<BersihuyOrder> _activeOrders = [];
@@ -34,8 +38,24 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   @override
   void initState() {
     super.initState();
+    _loadCustomerProfile();
     _loadActiveOrders();
     _loadPopularServices();
+  }
+
+  Future<void> _loadCustomerProfile() async {
+    try {
+      final profile = await _profileService.getCurrentProfile();
+      if (!mounted) return;
+      setState(() => _customerProfile = profile);
+    } catch (error) {
+      debugPrint('CUSTOMER HOME PROFILE LOAD ERROR: $error');
+    }
+  }
+
+  Future<void> _openCustomerProfileEditor() async {
+    await Navigator.pushNamed(context, AppRoutes.customerEditProfile);
+    if (mounted) await _loadCustomerProfile();
   }
 
   Future<void> _loadActiveOrders() async {
@@ -87,8 +107,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       if (_orderItemsCache.containsKey(orderId)) continue;
 
       try {
-        final items =
-            await const OrderRepository().loadOrderItemsForHome(orderId);
+        final items = await const OrderRepository().loadOrderItemsForHome(
+          orderId,
+        );
         if (!mounted) return;
         if (items.isNotEmpty) {
           // Update order.orderItems so serviceName getter works
@@ -201,10 +222,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          if (_customerProfile != null &&
+                              !_customerProfile!.isComplete) ...[
+                            _buildProfileCompletionBanner(),
+                            const SizedBox(height: 16),
+                          ],
                           _buildMembershipBanner(),
                           const SizedBox(height: 24),
                           Text(
-                            'Halo, Fathan',
+                            'Halo, ${_customerProfile?.firstName ?? 'Pengguna'}',
                             style: AppTextStyles.headlineLarge.copyWith(
                               fontSize: 24,
                               fontWeight: FontWeight.w700,
@@ -438,6 +464,78 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
+  Widget _buildProfileCompletionBanner() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFF2C15E).withValues(alpha: 0.5),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFF2C15E).withValues(alpha: 0.12),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFF1C2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.person_add_alt_1_rounded,
+              color: Color(0xFF9A6A00),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Lengkapi profil kamu',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Tambahkan nomor WhatsApp dan alamat utama agar pemesanan lebih mudah.',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontSize: 12.5,
+                    color: AppColors.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: _openCustomerProfileEditor,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: const Text('Lengkapi Sekarang'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCategoriesSection() {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -571,9 +669,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.error,
-            ),
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.error),
           ),
           const SizedBox(height: 10),
           TextButton(
@@ -682,11 +778,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               _formatSchedule(order),
             ),
             const SizedBox(height: 8),
-            _buildActiveOrderMetaRow(Icons.location_on_rounded, order.serviceAddress),
+            _buildActiveOrderMetaRow(
+              Icons.location_on_rounded,
+              order.serviceAddress,
+            ),
             const SizedBox(height: 8),
             _buildActiveOrderMetaRow(
               Icons.person_rounded,
-              order.assignedStaffName != null && order.assignedStaffName!.isNotEmpty
+              order.assignedStaffName != null &&
+                      order.assignedStaffName!.isNotEmpty
                   ? 'Petugas: ${order.assignedStaffName}'
                   : 'Menunggu penugasan',
             ),
@@ -752,7 +852,20 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     if (date == null && (time == null || time.isEmpty)) {
       return 'Belum dijadwalkan';
     }
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
     final dateStr = date != null
         ? '${date.day} ${months[date.month - 1]} ${date.year}'
         : null;

@@ -217,7 +217,10 @@ class StaffOperationalProfile {
     this.workSchedule,
   });
 
-  factory StaffOperationalProfile.fromMap(Map<String, Object?> map) {
+  factory StaffOperationalProfile.fromMap(
+    Map<String, Object?> map, {
+    String fallbackEmail = '',
+  }) {
     String? optional(String key) {
       final value = map[key]?.toString().trim();
       return value == null || value.isEmpty ? null : value;
@@ -226,7 +229,7 @@ class StaffOperationalProfile {
     return StaffOperationalProfile(
       id: map['id']?.toString() ?? '',
       fullName: optional('full_name') ?? 'Petugas Bersihuy',
-      email: optional('email') ?? '-',
+      email: optional('email') ?? (fallbackEmail.isEmpty ? '-' : fallbackEmail),
       phone: optional('phone'),
       serviceArea: optional('service_area'),
       baseLocation: optional('base_location'),
@@ -242,6 +245,34 @@ class StaffOperationalProfile {
     final value = parts.map((part) => part[0].toUpperCase()).join();
     return value.isEmpty ? 'P' : value;
   }
+}
+
+class StaffProfileStats {
+  final int completedTasks;
+  final int tasksThisMonth;
+  final double? averageRating;
+  final int complaintCount;
+
+  const StaffProfileStats({
+    required this.completedTasks,
+    required this.tasksThisMonth,
+    required this.averageRating,
+    required this.complaintCount,
+  });
+
+  static const empty = StaffProfileStats(
+    completedTasks: 0,
+    tasksThisMonth: 0,
+    averageRating: null,
+    complaintCount: 0,
+  );
+}
+
+class StaffProfileOverview {
+  final StaffOperationalProfile profile;
+  final StaffProfileStats stats;
+
+  const StaffProfileOverview({required this.profile, required this.stats});
 }
 
 enum TaskProofType { before, after }
@@ -616,12 +647,144 @@ class StaffTaskRepository {
           )
           .eq('id', user.id)
           .maybeSingle();
-      if (data == null) return null;
-      return StaffOperationalProfile.fromMap(Map<String, Object?>.from(data));
+      if (data == null) {
+        final metadataName = user.userMetadata?['full_name']?.toString().trim();
+        return StaffOperationalProfile(
+          id: user.id,
+          fullName: metadataName == null || metadataName.isEmpty
+              ? 'Petugas Bersihuy'
+              : metadataName,
+          email: user.email?.trim().isNotEmpty == true
+              ? user.email!.trim()
+              : '-',
+        );
+      }
+      return StaffOperationalProfile.fromMap(
+        Map<String, Object?>.from(data),
+        fallbackEmail: user.email?.trim() ?? '',
+      );
     } catch (error) {
       debugPrint('STAFF OPERATIONAL PROFILE FETCH ERROR: $error');
       rethrow;
     }
+  }
+
+  Future<StaffProfileOverview> getStaffProfileOverview() async {
+    final profile = await getStaffOperationalProfile();
+    if (profile == null) {
+      throw StateError('Sesi petugas tidak ditemukan.');
+    }
+
+    final stats = await _getStaffProfileStats(profile.id);
+    return StaffProfileOverview(profile: profile, stats: stats);
+  }
+
+  Future<void> updateStaffOperationalProfile({
+    required String fullName,
+    required String phone,
+    required String serviceArea,
+    required String baseLocation,
+    required String workSchedule,
+  }) async {
+    final userId = SupabaseService.currentUser?.id;
+    if (userId == null) {
+      throw StateError('Sesi petugas tidak ditemukan.');
+    }
+
+    await _client
+        .from('profiles')
+        .update({
+          'full_name': fullName.trim(),
+          'phone': _nullIfEmpty(phone),
+          'service_area': _nullIfEmpty(serviceArea),
+          'base_location': _nullIfEmpty(baseLocation),
+          'work_schedule': _nullIfEmpty(workSchedule),
+        })
+        .eq('id', userId)
+        .select('id')
+        .single();
+  }
+
+  Future<StaffProfileStats> _getStaffProfileStats(String staffId) async {
+    var completedTasks = 0;
+    var tasksThisMonth = 0;
+    double? averageRating;
+    var complaintCount = 0;
+    var orderIds = <String>[];
+
+    try {
+      final data = await _client
+          .from('tasks')
+          .select('order_id, status, assigned_at')
+          .eq('staff_id', staffId);
+      final rows = (data as List)
+          .map((row) => Map<String, Object?>.from(row as Map))
+          .toList();
+      completedTasks = rows
+          .where((row) => row['status']?.toString() == 'completed')
+          .length;
+
+      final now = DateTime.now();
+      tasksThisMonth = rows.where((row) {
+        final assignedAt = StaffTask._parseDateTime(
+          row['assigned_at'],
+        )?.toLocal();
+        return assignedAt != null &&
+            assignedAt.year == now.year &&
+            assignedAt.month == now.month;
+      }).length;
+
+      orderIds = rows
+          .map((row) => row['order_id']?.toString().trim() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList();
+    } catch (error) {
+      debugPrint('STAFF PROFILE TASK STATS ERROR: $error');
+    }
+
+    try {
+      final data = await _client
+          .from('reviews')
+          .select('rating')
+          .eq('staff_id', staffId);
+      final ratings = (data as List)
+          .map((row) => (row as Map)['rating'])
+          .whereType<num>()
+          .map((rating) => rating.toDouble())
+          .where((rating) => rating > 0)
+          .toList();
+      if (ratings.isNotEmpty) {
+        averageRating =
+            ratings.reduce((total, rating) => total + rating) / ratings.length;
+      }
+    } catch (error) {
+      debugPrint('STAFF PROFILE RATING STATS ERROR: $error');
+    }
+
+    if (orderIds.isNotEmpty) {
+      try {
+        final data = await _client
+            .from('complaints')
+            .select('id')
+            .inFilter('order_id', orderIds);
+        complaintCount = (data as List).length;
+      } catch (error) {
+        debugPrint('STAFF PROFILE COMPLAINT STATS ERROR: $error');
+      }
+    }
+
+    return StaffProfileStats(
+      completedTasks: completedTasks,
+      tasksThisMonth: tasksThisMonth,
+      averageRating: averageRating,
+      complaintCount: complaintCount,
+    );
+  }
+
+  String? _nullIfEmpty(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   // ── Private enrichment helpers ────────────────────────────────────────────

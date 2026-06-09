@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
+import '../services/customer_profile_service.dart';
 
 class CustomerEditProfileScreen extends StatefulWidget {
   const CustomerEditProfileScreen({super.key});
@@ -12,19 +13,96 @@ class CustomerEditProfileScreen extends StatefulWidget {
 }
 
 class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController(text: 'Fathan Nabil');
-  final _emailController = TextEditingController(text: 'fathan@email.com');
-  final _phoneController = TextEditingController(text: '081234567890');
-  final _addressController = TextEditingController(
-    text: 'Jln. Sudirman No. 45',
-  );
-  final _noteController = TextEditingController(
-    text: 'Patokan dekat minimarket',
-  );
-  String _selectedCity = 'Jakarta';
+  static const _profileService = CustomerProfileService();
 
-  static const _cities = ['Jakarta', 'Bandung', 'Surabaya'];
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _noteController = TextEditingController();
+
+  CustomerProfileData? _profile;
+  bool _isLoading = true;
+  bool _isSaving = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final profile = await _profileService.getCurrentProfile();
+      if (!mounted) return;
+      _nameController.text = profile.fullName;
+      _emailController.text = profile.email;
+      _phoneController.text = profile.phone;
+      _addressController.text = profile.mainAddress;
+      _cityController.text = profile.city;
+      _noteController.text = profile.addressNote;
+      setState(() => _profile = profile);
+    } catch (error, stackTrace) {
+      debugPrint('CUSTOMER EDIT PROFILE LOAD ERROR: $error');
+      debugPrint('CUSTOMER EDIT PROFILE LOAD STACKTRACE: $stackTrace');
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Data pribadi belum dapat dimuat. Silakan coba lagi.';
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveChanges() async {
+    if (_isSaving || !_formKey.currentState!.validate()) return;
+
+    setState(() => _isSaving = true);
+    try {
+      await _profileService.updateCurrentProfile(
+        fullName: _nameController.text,
+        phone: _phoneController.text,
+        mainAddress: _addressController.text,
+        city: _cityController.text,
+        addressNote: _noteController.text,
+      );
+
+      if (!mounted) return;
+      await _loadProfile();
+      if (!mounted) return;
+      _showSnackBar('Profil berhasil diperbarui.', isError: false);
+    } catch (error, stackTrace) {
+      debugPrint('CUSTOMER EDIT PROFILE SAVE ERROR: $error');
+      debugPrint('CUSTOMER EDIT PROFILE SAVE STACKTRACE: $stackTrace');
+      if (!mounted) return;
+      final message = error.toString().replaceFirst('Exception: ', '');
+      _showSnackBar(
+        message.isEmpty ? 'Profil gagal diperbarui.' : message,
+        isError: true,
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  void _showSnackBar(String message, {required bool isError}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? AppColors.error : AppColors.primary,
+        ),
+      );
+  }
 
   @override
   void dispose() {
@@ -32,16 +110,9 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
+    _cityController.dispose();
     _noteController.dispose();
     super.dispose();
-  }
-
-  void _saveChanges() {
-    if (_formKey.currentState!.validate()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Perubahan profil disimpan (dummy).')),
-      );
-    }
   }
 
   @override
@@ -55,41 +126,80 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
             child: Container(
               width: double.infinity,
               constraints: const BoxConstraints(maxWidth: 460),
-              child: Stack(
+              child: _buildBody(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Container(
+            padding: const EdgeInsets.all(22),
+            decoration: _cardDecoration(radius: 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  color: AppColors.error,
+                  size: 34,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                OutlinedButton(
+                  onPressed: _loadProfile,
+                  child: const Text('Coba Lagi'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(22, 18, 22, 118),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ScrollConfiguration(
-                    behavior: ScrollConfiguration.of(
-                      context,
-                    ).copyWith(scrollbars: false),
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(22, 18, 22, 118),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _buildPhotoSection(),
-                            const SizedBox(height: 24),
-                            _buildFormSection(),
-                            const SizedBox(height: 24),
-                            _buildSavedAddressSection(),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: _buildBottomActionPanel(),
-                  ),
+                  _buildPhotoSection(),
+                  const SizedBox(height: 24),
+                  _buildFormSection(),
                 ],
               ),
             ),
           ),
         ),
-      ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: _buildBottomActionPanel(),
+        ),
+      ],
     );
   }
 
@@ -124,66 +234,42 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
   Widget _buildPhotoSection() {
     return Column(
       children: [
-        Stack(
-          children: [
-            Container(
-              width: 98,
-              height: 98,
-              decoration: BoxDecoration(
+        Container(
+          width: 98,
+          height: 98,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.2),
+              width: 2,
+            ),
+            boxShadow: [
+              BoxShadow(
                 color: AppColors.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.2),
-                  width: 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
+                blurRadius: 20,
+                offset: const Offset(0, 10),
               ),
-              child: Center(
-                child: Text(
-                  'FN',
-                  style: AppTextStyles.headlineSmall.copyWith(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
-                  ),
-                ),
+            ],
+          ),
+          child: Center(
+            child: Text(
+              _profile?.initials ?? 'PB',
+              style: AppTextStyles.headlineSmall.copyWith(
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primary,
               ),
             ),
-            Positioned(
-              bottom: 2,
-              right: 2,
-              child: Container(
-                width: 30,
-                height: 30,
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.edit, color: Colors.white, size: 14),
-              ),
-            ),
-          ],
+          ),
         ),
         const SizedBox(height: 8),
-        TextButton(
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Simulasi: Ubah Foto Profil')),
-            );
-          },
-          child: Text(
-            'Ubah Foto',
-            style: AppTextStyles.labelMedium.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0,
-            ),
+        Text(
+          'Profil Pelanggan',
+          style: AppTextStyles.labelMedium.copyWith(
+            color: AppColors.primary,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
           ),
         ),
       ],
@@ -200,6 +286,7 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
           _buildTextField(
             label: 'Nama Lengkap',
             controller: _nameController,
+            placeholder: 'Masukkan nama lengkap',
             validator: (value) => value == null || value.trim().isEmpty
                 ? 'Nama wajib diisi'
                 : null,
@@ -209,14 +296,13 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
             label: 'Email',
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
-            validator: (value) => value == null || value.trim().isEmpty
-                ? 'Email wajib diisi'
-                : null,
+            readOnly: true,
           ),
           const SizedBox(height: 16),
           _buildTextField(
             label: 'Nomor WhatsApp',
             controller: _phoneController,
+            placeholder: 'Belum diisi',
             keyboardType: TextInputType.phone,
           ),
           const SizedBox(height: 18),
@@ -234,14 +320,21 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
           _buildTextField(
             label: 'Detail Alamat',
             controller: _addressController,
+            placeholder: 'Belum ada alamat utama',
+            maxLines: 2,
           ),
           const SizedBox(height: 16),
-          _buildCityDropdown(),
+          _buildTextField(
+            label: 'Kota',
+            controller: _cityController,
+            placeholder: 'Belum diisi',
+          ),
           const SizedBox(height: 16),
           _buildTextField(
             label: 'Catatan Alamat',
             controller: _noteController,
             placeholder: 'Contoh: Patokan dekat minimarket',
+            maxLines: 2,
           ),
         ],
       ),
@@ -254,6 +347,8 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
     String? placeholder,
     TextInputType keyboardType = TextInputType.text,
     String? Function(String?)? validator,
+    bool readOnly = false,
+    int maxLines = 1,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,100 +359,12 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
           controller: controller,
           keyboardType: keyboardType,
           validator: validator,
+          readOnly: readOnly,
+          maxLines: maxLines,
           style: AppTextStyles.bodyMedium.copyWith(color: AppColors.onSurface),
-          decoration: _inputDecoration(hintText: placeholder),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCityDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _fieldLabel('Kota'),
-        const SizedBox(height: 7),
-        DropdownButtonFormField<String>(
-          initialValue: _selectedCity,
-          decoration: _inputDecoration(),
-          icon: const Icon(
-            Icons.expand_more,
-            color: AppColors.onSurfaceVariant,
-          ),
-          items: _cities
-              .map((city) => DropdownMenuItem(value: city, child: Text(city)))
-              .toList(),
-          onChanged: (value) {
-            if (value != null) {
-              setState(() => _selectedCity = value);
-            }
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSavedAddressSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Alamat Tersimpan',
-          style: AppTextStyles.headlineSmall.copyWith(
-            fontSize: 17,
-            fontWeight: FontWeight.w800,
-            color: AppColors.onSurface,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: _cardDecoration(radius: 22),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.home, color: AppColors.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Rumah',
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _addressController.text,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: AppColors.outline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              TextButton(
-                onPressed: () {},
-                child: Text(
-                  'Ubah',
-                  style: AppTextStyles.labelSmall.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
+          decoration: _inputDecoration(
+            hintText: placeholder,
+            readOnly: readOnly,
           ),
         ),
       ],
@@ -383,21 +390,31 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
         ],
       ),
       child: ElevatedButton(
-        onPressed: _saveChanges,
+        onPressed: _isSaving ? null : _saveChanges,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
+          disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.6),
           elevation: 0,
           shape: const StadiumBorder(),
           padding: const EdgeInsets.symmetric(vertical: 15),
         ),
-        child: Text(
-          'Simpan Perubahan',
-          style: AppTextStyles.buttonLabel.copyWith(
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-          ),
-        ),
+        child: _isSaving
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2.4,
+                ),
+              )
+            : Text(
+                'Simpan Perubahan',
+                style: AppTextStyles.buttonLabel.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
       ),
     );
   }
@@ -413,12 +430,14 @@ class _CustomerEditProfileScreenState extends State<CustomerEditProfileScreen> {
     );
   }
 
-  InputDecoration _inputDecoration({String? hintText}) {
+  InputDecoration _inputDecoration({String? hintText, bool readOnly = false}) {
     return InputDecoration(
       hintText: hintText,
       hintStyle: AppTextStyles.bodyMedium.copyWith(color: AppColors.outline),
       filled: true,
-      fillColor: const Color(0xFFFAFCFC),
+      fillColor: readOnly
+          ? AppColors.outlineVariant.withValues(alpha: 0.18)
+          : const Color(0xFFFAFCFC),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),

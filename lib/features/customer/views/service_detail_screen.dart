@@ -17,7 +17,6 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   TimeOfDay? _selectedTime;
   final _addressController = TextEditingController(text: 'Jl. Sudirman No. 45');
   final _notesController = TextEditingController();
-  String _staffPreference = 'Bebas';
   String? _selectedScent;
   final Set<int> _selectedAddOnIndexes = {};
   bool _didReadRoute = false;
@@ -467,38 +466,6 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                 hintText: 'Contoh: Jl. Sudirman No. 1',
                 icon: Icons.location_on_outlined,
                 maxLines: 2,
-              ),
-              const SizedBox(height: 14),
-              _fieldLabel('Preferensi petugas'),
-              const SizedBox(height: 7),
-              DropdownButtonFormField<String>(
-                initialValue: _staffPreference,
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: AppColors.onSurface,
-                ),
-                icon: const Icon(
-                  Icons.keyboard_arrow_down,
-                  color: AppColors.outline,
-                ),
-                decoration: _inputDecoration(),
-                items: const [
-                  DropdownMenuItem(value: 'Bebas', child: Text('Bebas')),
-                  DropdownMenuItem(
-                    value: 'Laki-laki',
-                    child: Text('Laki-laki'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'Perempuan',
-                    child: Text('Perempuan'),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _staffPreference = value;
-                    });
-                  }
-                },
               ),
               const SizedBox(height: 14),
               _fieldLabel('Catatan tambahan'),

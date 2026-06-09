@@ -5,15 +5,62 @@ import '../../../core/constants/app_text_styles.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../shared/widgets/customer_bottom_nav.dart';
+import '../services/customer_profile_service.dart';
 
-class CustomerProfileScreen extends StatelessWidget {
+class CustomerProfileScreen extends StatefulWidget {
   const CustomerProfileScreen({super.key});
+
+  @override
+  State<CustomerProfileScreen> createState() => _CustomerProfileScreenState();
+}
+
+class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
+  static const _profileService = CustomerProfileService();
+
+  CustomerProfileOverview? _overview;
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
+
+    try {
+      final overview = await _profileService.getOverview();
+      if (!mounted) return;
+      setState(() => _overview = overview);
+    } catch (error, stackTrace) {
+      debugPrint('CUSTOMER PROFILE LOAD ERROR: $error');
+      debugPrint('CUSTOMER PROFILE LOAD STACKTRACE: $stackTrace');
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Profil belum dapat dimuat. Silakan coba lagi.';
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _openEditProfile() async {
+    await Navigator.pushNamed(context, AppRoutes.customerEditProfile);
+    if (mounted) await _loadProfile();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: _buildAppBar(context),
+      appBar: _buildAppBar(),
       body: _PremiumCustomerBackground(
         child: SafeArea(
           child: Center(
@@ -28,18 +75,7 @@ class CustomerProfileScreen extends StatelessWidget {
                     ).copyWith(scrollbars: false),
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.fromLTRB(22, 20, 22, 104),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildProfileHeaderCard(context),
-                          const SizedBox(height: 20),
-                          _buildMembershipCard(context),
-                          const SizedBox(height: 20),
-                          _buildAccountMenu(context),
-                          const SizedBox(height: 20),
-                          _buildLogoutButton(context),
-                        ],
-                      ),
+                      child: _buildContent(),
                     ),
                   ),
                   const Positioned(
@@ -57,7 +93,38 @@ class CustomerProfileScreen extends StatelessWidget {
     );
   }
 
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
+  Widget _buildContent() {
+    if (_isLoading) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 120),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMessage != null || _overview == null) {
+      return _buildErrorState();
+    }
+
+    final profile = _overview!.profile;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildProfileHeaderCard(profile),
+        if (!profile.isComplete) ...[
+          const SizedBox(height: 16),
+          _buildCompletionCard(),
+        ],
+        const SizedBox(height: 20),
+        _buildMembershipCard(),
+        const SizedBox(height: 20),
+        _buildAccountMenu(),
+        const SizedBox(height: 20),
+        _buildLogoutButton(),
+      ],
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
     return AppBar(
       backgroundColor: Colors.white.withValues(alpha: 0.92),
       elevation: 0,
@@ -98,7 +165,37 @@ class CustomerProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildProfileHeaderCard(BuildContext context) {
+  Widget _buildErrorState() {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: _cardDecoration(radius: 22),
+      child: Column(
+        children: [
+          const Icon(
+            Icons.error_outline_rounded,
+            color: AppColors.error,
+            size: 34,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _errorMessage ?? 'Profil belum dapat dimuat.',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppColors.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton(
+            onPressed: _loadProfile,
+            child: const Text('Coba Lagi'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileHeaderCard(CustomerProfileData profile) {
+    final overview = _overview!;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: _cardDecoration(radius: 24),
@@ -119,7 +216,7 @@ class CustomerProfileScreen extends StatelessWidget {
                 ),
                 child: Center(
                   child: Text(
-                    'FN',
+                    profile.initials,
                     style: AppTextStyles.headlineSmall.copyWith(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
@@ -134,7 +231,7 @@ class CustomerProfileScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Fathan Nabil',
+                      profile.displayName,
                       style: AppTextStyles.headlineSmall.copyWith(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
@@ -143,7 +240,9 @@ class CustomerProfileScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      'fathan@email.com',
+                      profile.email.isEmpty
+                          ? 'Email tidak tersedia'
+                          : profile.email,
                       style: AppTextStyles.bodyMedium.copyWith(
                         color: AppColors.onSurfaceVariant,
                       ),
@@ -154,9 +253,7 @@ class CustomerProfileScreen extends StatelessWidget {
                 ),
               ),
               IconButton(
-                onPressed: () {
-                  Navigator.pushNamed(context, AppRoutes.customerEditProfile);
-                },
+                onPressed: _openEditProfile,
                 icon: const Icon(Icons.edit_outlined, size: 18),
                 color: AppColors.primary,
                 style: IconButton.styleFrom(
@@ -171,8 +268,8 @@ class CustomerProfileScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildStatItem('Pesanan', '12'),
-              _buildStatItem('Selesai', '8'),
+              _buildStatItem('Pesanan', '${overview.totalOrders}'),
+              _buildStatItem('Selesai', '${overview.completedOrders}'),
               _buildStatItem('Member', 'Free'),
             ],
           ),
@@ -181,7 +278,79 @@ class CustomerProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildMembershipCard(BuildContext context) {
+  Widget _buildCompletionCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFF2C15E).withValues(alpha: 0.5),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFF2C15E).withValues(alpha: 0.12),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFF1C2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.person_add_alt_1_rounded,
+              color: Color(0xFF9A6A00),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Lengkapi profil kamu',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Tambahkan nomor WhatsApp dan alamat utama agar pemesanan lebih mudah.',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontSize: 12.5,
+                    color: AppColors.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: _openEditProfile,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: const Text('Lengkapi Sekarang'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMembershipCard() {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -282,7 +451,7 @@ class CustomerProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAccountMenu(BuildContext context) {
+  Widget _buildAccountMenu() {
     return Container(
       decoration: _cardDecoration(radius: 22),
       clipBehavior: Clip.antiAlias,
@@ -291,9 +460,7 @@ class CustomerProfileScreen extends StatelessWidget {
           _buildMenuItem(
             icon: Icons.person_outline,
             title: 'Data Pribadi',
-            onTap: () {
-              Navigator.pushNamed(context, AppRoutes.customerEditProfile);
-            },
+            onTap: _openEditProfile,
           ),
           _divider(),
           _buildMenuItem(
@@ -365,18 +532,15 @@ class CustomerProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildLogoutButton(BuildContext context) {
+  Widget _buildLogoutButton() {
     return OutlinedButton.icon(
       onPressed: () async {
         await SupabaseService.signOut();
-        if (context.mounted) {
+        if (mounted) {
           Navigator.pushNamedAndRemoveUntil(
             context,
             AppRoutes.login,
             (route) => false,
-          );
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Anda telah keluar dari akun')),
           );
         }
       },
